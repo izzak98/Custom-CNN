@@ -5,6 +5,7 @@ from tqdm import tqdm
 from utils import convert_to_array
 from lossFuncs import loss_derivative_mapping
 from activationFuncs import act_derivative_mapping
+from Optmizers import Adam
 
 
 class DenseLayer:
@@ -30,11 +31,12 @@ class DenseLayer:
 
 
 class NeuralNetwork:
-    def __init__(self, input_shape: int, lr=None, loss=None) -> None:
+    def __init__(self, input_shape: int, lr=0.01, loss=None) -> None:
         self.layers = []
         self.input_shape = input_shape
         self.lr = lr
         self.loss = loss
+        self.optimizer = Adam(lr=lr)
 
     def get_weights(self) -> list[float_]:
         weights = []
@@ -119,22 +121,38 @@ class NeuralNetwork:
                 delta = np.dot(delta, layer.weights) * \
                     act_derivative_mapping[self.layers[i - 1].activation](z[i - 1])
 
-        return gradients
+        return gradients, a[len(self.layers) - 1]
 
-    def train(self, X: ndarray, y: ndarray, epochs: int) -> None:
+    def train(self,
+              X: ndarray,
+              y: ndarray,
+              epochs: int,
+              batch_size: int = 34,
+              shuffle: bool = True) -> None:
         assert self.loss is not None, "Loss function not defined"
         X = convert_to_array(X)
         y = convert_to_array(y)
 
+        if shuffle:
+            indices = np.random.permutation(X.shape[0])
+            X = X[indices]
+            y = y[indices]
+
         progress = tqdm(range(epochs), desc='Training')
         for _ in progress:
-            preds = self(X)
-            loss = self.loss(y, preds)
-            gradients = self.backwards_pass(X, y)
-            for i, layer in enumerate(self.layers):
-                layer.weights += self.lr * gradients[f'W{i}']
-                layer.biases += self.lr * gradients[f'b{i}']
-            progress.set_postfix(loss=round(float(loss), 6))
+            batch_loss = []
+            for i in range(0, X.shape[0], batch_size):
+                X_batch = X[i:i + batch_size]
+                y_batch = y[i:i + batch_size]
+                gradients, preds = self.backwards_pass(X_batch, y_batch)
+                loss = self.loss(preds, y_batch)
+                weights = self.get_weights()
+                updated_weights = self.optimizer(weights, gradients)
+                for i, layer in enumerate(self.layers):
+                    layer.weights = updated_weights[f'W{i}']
+                    layer.biases = updated_weights[f'b{i}']
+                batch_loss.append(loss)
+            progress.set_postfix(loss=round(float(np.mean(loss)), 6))
 
 
 if __name__ == "__main__":
@@ -142,9 +160,8 @@ if __name__ == "__main__":
     from lossFuncs import mean_squared_error as mse
     nn = NeuralNetwork(3, lr=0.01, loss=mse)
     nn.add_layer(3, relu)
-    nn.add_layer(3, relu)
     nn.add_layer(1, sigmoid)
     X = [[0.1, 0.2, 0.3], [0.2, 0.3, 0.4], [0.3, 0.4, 0.5], [0.4, 0.5, 0.6]]
     y = [0.2, 0.3, 0.4, 0.5]
-    nn.train(X, y, 10000)
+    nn.train(X, y, 1000, shuffle=True)
     print(nn(X))
