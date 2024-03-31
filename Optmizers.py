@@ -13,8 +13,8 @@ class Adam:
         self.t = 0
 
     def init_moments(self, weights: list[float_]) -> None:
-        self.m = [np.zeros_like(weight) for weight in weights]
-        self.v = [np.zeros_like(weight) for weight in weights]
+        self.m = [np.zeros_like(weight) if weight is not None else None for weight in weights]
+        self.v = self.m.copy()
 
     def __call__(self,
                  weights: list[float_],
@@ -30,17 +30,27 @@ class Adam:
         updated_weights = {}
 
         for i, weight in enumerate(weights):
+
             if i % 2 == 0:
                 grad_key = f'W{i // 2}'
             else:
                 grad_key = f'b{i // 2}'
-            self.m[i] = self.b1 * self.m[i] + (1 - self.b1) * gradients[grad_key]
-            self.v[i] = self.b2 * self.v[i] + (1 - self.b2) * gradients[grad_key] ** 2
+
+            if weight is None:
+                updated_weights[grad_key] = None
+                continue
+            grads = gradients[grad_key]
+            if "W" in grad_key:
+                grads = grads.T
+            self.m[i] = self.b1 * self.m[i] + (1 - self.b1) * grads
+            self.v[i] = self.b2 * self.v[i] + (1 - self.b2) * grads ** 2
 
             m_hat = self.m[i] / (1 - self.b1 ** self.t)
             v_hat = self.v[i] / (1 - self.b2 ** self.t)
-
-            weight += self.lr * m_hat / (np.sqrt(v_hat) + self.e)
+            if i % 2 == 0:
+                weight += self.lr * m_hat / (np.sqrt(v_hat) + self.e)
+            else:
+                weight += (self.lr * m_hat / (np.sqrt(v_hat) + self.e)).reshape(-1)
             updated_weights[grad_key] = weight
 
         return updated_weights
