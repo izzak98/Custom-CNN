@@ -31,15 +31,9 @@ def softmax(x: ndarray) -> ndarray:
     return exps / np.sum(exps)
 
 
-def softmax_cross_entropy_derivative(y_true, y_pred):
-    pred_vect = np.zeros_like(y_pred)
-    pred_vect[np.arange(y_true.size), y_true.astype(np.int_)] = 1
-    return y_pred - pred_vect
-
-
 act_derivative_mapping = {
     relu: relu_derivative,
     sigmoid: sigmoid_derivative,
     tanh: tanh_derivative,
-    softmax: softmax_cross_entropy_derivative
+    softmax: None
 }
