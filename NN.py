@@ -4,7 +4,7 @@ from cupy import ndarray, float_
 from tqdm import tqdm
 from utils import convert_to_array
 from lossFuncs import loss_derivative_mapping
-from activationFuncs import softmax
+from layers import DenseLayer, CnnLayer, FlattenLayer
 from Optmizers import Adam
 
 
@@ -19,6 +19,7 @@ class NeuralNetwork:
         self.lr = lr
         self.loss = loss
         self.optimizer = Adam(lr=lr)
+        self.weighted_layers = []
 
     def get_weights(self) -> list[float_]:
         weights = []
@@ -36,18 +37,18 @@ class NeuralNetwork:
             weight = weight.T
             if i % 2 == 0:
                 try:
-                    weight = weight.reshape(self.layers[i // 2].weights.shape)
+                    weight = weight.reshape(self.weighted_layers[i // 2].weights.shape)
                 except ValueError:
                     raise ValueError("Weight shape mismatch")
                 weight = convert_to_array(weight)
-                self.layers[i // 2].weights = weight
+                self.weighted_layers[i // 2].weights = weight
             elif i % 2 == 1:
                 try:
-                    weight = weight.reshape(self.layers[i // 2].biases.shape)
+                    weight = weight.reshape(self.weighted_layers[i // 2].biases.shape)
                 except ValueError:
                     raise ValueError("Bias shape mismatch")
                 weight = convert_to_array(weight)
-                self.layers[i // 2].biases = weight
+                self.weighted_layers[i // 2].biases = weight
 
     def add_layer(self, layer, **kwargs) -> None:
         if not self.layers:
@@ -55,6 +56,8 @@ class NeuralNetwork:
         else:
             layer = layer(self.layers[-1].output_size, **kwargs)
         self.layers.append(layer)
+        if hasattr(layer, 'weights'):
+            self.weighted_layers.append(layer)
 
     def __call__(self, inputs: ndarray) -> ndarray:
         inputs = convert_to_array(inputs)
@@ -101,6 +104,7 @@ class NeuralNetwork:
         # Initialize delta from the loss derivative w.r.t. the last layer's activation
         loss_prime = loss_derivative_mapping[self.loss]
         delta = loss_prime(y, a[len(self.layers) - 1])
+        delta = loss_prime(y, a[len(self.layers) - 1])
 
         # Iterate backwards through the layers
         for i in reversed(range(len(self.layers))):
@@ -111,12 +115,13 @@ class NeuralNetwork:
             if hasattr(layer, 'weights'):
                 if i == 0:
                     grad_weights, grad_bias, delta = layer.backward_pass(X, delta, False)
-                elif layer.activation == softmax:
-                    grad_weights, grad_bias, delta = layer.softmax_backward_pass(
-                        delta, a[i - 1], y, a[len(self.layers) - 1])
                 else:
-                    grad_weights, grad_bias, delta = layer.backward_pass(
-                        a[i - 1], delta, True, z[i-1])
+                    if layer.soxtmax:
+                        grad_weights, grad_bias, delta = layer.backward_pass(
+                            a[i - 1], delta, True, y)
+                    else:
+                        grad_weights, grad_bias, delta = layer.backward_pass(
+                            a[i - 1], delta, True, z[i-1])
                 grad_weights = grad_weights / X.shape[0]
 
                 gradients[f'b{i}'] = grad_bias
@@ -152,6 +157,7 @@ class NeuralNetwork:
                 y_batch = y[i:i + batch_size]
                 gradients, preds = self.backwards_pass(X_batch, y_batch)
                 loss = self.loss(y_batch, preds)
+                loss = self.loss(y_batch, preds)
                 weights = self.get_weights()
                 updated_weights = self.optimizer(weights, gradients)
                 for i, layer in enumerate(self.layers):
@@ -165,29 +171,14 @@ class NeuralNetwork:
 
 if __name__ == "__main__":
     from activationFuncs import relu, softmax
-    from lossFuncs import categorical_crossentropy
-    from layers import DenseLayer, FlattenLayer, CnnLayer, MaxPoolingLayer
-    nn = NeuralNetwork((8, 8, 1), lr=0.01, loss=categorical_crossentropy)
-    nn.add_layer(CnnLayer,
-                 kernel_size=(4, 4),
-                 filters=3,
-                 stride=1,
-                 padding=1,
-                 activation=relu,
-                 input_channels=1)
-    # nn.add_layer(CnnLayer,
-    #              kernel_size=(3, 3),
-    #              filters=3,
-    #              stride=1,
-    #              padding=1,
-    #              activation=relu,
-    #              input_channels=1)
-    nn.add_layer(MaxPoolingLayer, pool_size=2, stride=1)
+    from lossFuncs import sparse_categorical_crossentropy as scc
+    nn = NeuralNetwork((4, 4, 1), lr=0.01, loss=scc)
+    nn.add_layer(CnnLayer, kernel_size=(2, 2), filters=2, stride=1,
+                 padding=0, activation=relu, input_channels=1)
     nn.add_layer(FlattenLayer)
-    # nn.add_layer(DenseLayer, output_size=64, activation=relu)
-    # nn.add_layer(DenseLayer, output_size=32, activation=relu)
-    nn.add_layer(DenseLayer, output_size=10, activation=softmax)
-    X = np.random.rand(11, 8, 8, 1)
-    y = np.random.randint(0, 10, 11)
+    nn.add_layer(DenseLayer, output_size=5, activation=relu)
+    nn.add_layer(DenseLayer, output_size=3, activation=softmax)
+    X = np.random.rand(15, 4, 4, 1)
+    y = np.random.randint(0, 3, 15).reshape(-1, 1)
+    nn.train(X, y, 150, shuffle=True)
     print(nn(X))
-    nn.train(X, y, 1000)
