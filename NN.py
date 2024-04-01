@@ -4,7 +4,7 @@ from cupy import ndarray, float_
 from tqdm import tqdm
 from utils import convert_to_array
 from lossFuncs import loss_derivative_mapping
-from activationFuncs import act_derivative_mapping
+from activationFuncs import softmax
 from Optmizers import Adam
 
 
@@ -100,7 +100,7 @@ class NeuralNetwork:
 
         # Initialize delta from the loss derivative w.r.t. the last layer's activation
         loss_prime = loss_derivative_mapping[self.loss]
-        delta = loss_prime(a[len(self.layers) - 1], y)
+        delta = loss_prime(y, a[len(self.layers) - 1])
 
         # Iterate backwards through the layers
         for i in reversed(range(len(self.layers))):
@@ -111,6 +111,9 @@ class NeuralNetwork:
             if hasattr(layer, 'weights'):
                 if i == 0:
                     grad_weights, grad_bias, delta = layer.backward_pass(X, delta, False)
+                elif layer.activation == softmax:
+                    grad_weights, grad_bias, delta = layer.softmax_backward_pass(
+                        delta, a[i - 1], y, a[len(self.layers) - 1])
                 else:
                     grad_weights, grad_bias, delta = layer.backward_pass(
                         a[i - 1], delta, True, z[i-1])
@@ -148,7 +151,7 @@ class NeuralNetwork:
                 X_batch = X[i:i + batch_size]
                 y_batch = y[i:i + batch_size]
                 gradients, preds = self.backwards_pass(X_batch, y_batch)
-                loss = self.loss(preds, y_batch)
+                loss = self.loss(y_batch, preds)
                 weights = self.get_weights()
                 updated_weights = self.optimizer(weights, gradients)
                 for i, layer in enumerate(self.layers):
@@ -161,22 +164,30 @@ class NeuralNetwork:
 
 
 if __name__ == "__main__":
-    from activationFuncs import relu, sigmoid
-    from lossFuncs import mean_squared_error as mse
+    from activationFuncs import relu, softmax
+    from lossFuncs import categorical_crossentropy
     from layers import DenseLayer, FlattenLayer, CnnLayer, MaxPoolingLayer
-    nn = NeuralNetwork((5, 5, 3), lr=0.01, loss=mse)
+    nn = NeuralNetwork((8, 8, 1), lr=0.01, loss=categorical_crossentropy)
     nn.add_layer(CnnLayer,
-                 kernel_size=(3, 3),
+                 kernel_size=(4, 4),
                  filters=3,
                  stride=1,
                  padding=1,
                  activation=relu,
-                 input_channels=3)
-    nn.add_layer(MaxPoolingLayer, pool_size=2, stride=2)
+                 input_channels=1)
+    # nn.add_layer(CnnLayer,
+    #              kernel_size=(3, 3),
+    #              filters=3,
+    #              stride=1,
+    #              padding=1,
+    #              activation=relu,
+    #              input_channels=1)
+    nn.add_layer(MaxPoolingLayer, pool_size=2, stride=1)
     nn.add_layer(FlattenLayer)
-    nn.add_layer(DenseLayer, output_size=10, activation=relu)
-    nn.add_layer(DenseLayer, output_size=1, activation=sigmoid)
-    X = np.random.rand(10, 5, 5, 3)
-    y = np.random.rand(10)
+    # nn.add_layer(DenseLayer, output_size=64, activation=relu)
+    # nn.add_layer(DenseLayer, output_size=32, activation=relu)
+    nn.add_layer(DenseLayer, output_size=10, activation=softmax)
+    X = np.random.rand(11, 8, 8, 1)
+    y = np.random.randint(0, 10, 11)
     print(nn(X))
     nn.train(X, y, 1000)
