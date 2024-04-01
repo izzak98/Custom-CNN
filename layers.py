@@ -16,6 +16,7 @@ class DenseLayer:
         self.biases = np.random.rand(output_size)
         self.activation = activation
         self.act_derivative = act_derivative_mapping[self.activation]
+        self.soxtmax = self.activation.__name__ == "softmax"
 
     def __call__(self, inputs: ndarray) -> ndarray:
         z = np.dot(self.weights, inputs) + self.biases
@@ -34,18 +35,11 @@ class DenseLayer:
         grad_biases = np.sum(delta, axis=0, keepdims=True)
         if cacl_next_delta:
             next_delta = np.dot(delta, self.weights)
-            next_delta *= self.act_derivative(prev_raw_output)
+            if not self.soxtmax:
+                next_delta *= self.act_derivative(prev_raw_output)
         else:
             next_delta = None
         return grad_weights.T, grad_biases, next_delta
-
-    def softmax_backward_pass(self, delta, prev_output, y_true, y_pred):
-        delta = self.act_derivative(y_true, y_pred)
-        grad_weights = np.dot(prev_output.T, delta)  # Gradient w.r.t. weights
-        grad_biases = np.sum(delta, axis=0, keepdims=True)  # Gradient w.r.t. biases
-        next_delta = np.dot(delta, self.weights)  # Propagate delta back to previous layer
-
-        return grad_weights, grad_biases, next_delta
 
 
 class FlattenLayer:
@@ -73,8 +67,8 @@ class CnnLayer:
                  kernel_size: tuple[int, int],
                  filters: int,
                  stride: int,
-                 padding: int,
                  activation: Callable[[ndarray], ndarray],
+                 padding: int = 0,
                  input_channels: int = 1  # Assuming 1 input channel by default
                  ) -> None:
         assert kernel_size < input_size, "Kernel size must be smaller than input size"
@@ -88,7 +82,7 @@ class CnnLayer:
         self.output_size = (1 + (input_size[0] - kernel_size[0] + 2 * padding) // stride,
                             1 + (input_size[1] - kernel_size[1] + 2 * padding) // stride,
                             filters)
-        self.weights = np.random.rand(filters, kernel_size[0], kernel_size[1], input_channels)/10
+        self.weights = np.random.rand(filters, input_channels, kernel_size[0], kernel_size[1])/10
         self.biases = np.random.rand(filters)/10
 
     def pad(self, inputs: ndarray) -> ndarray:
@@ -136,8 +130,7 @@ class CnnLayer:
             for c in range(channels):
                 for i in range(self.kernel_size[0]):
                     for j in range(self.kernel_size[1]):
-                        # ns
-                        grad_weights[f, i, j, c] = -np.sum(
+                        grad_weights[f, c, i, j] = np.sum(
                             delta[:, :, :, f] * prev_output_padded[:,
                                                                    i:i+delta.shape[1],
                                                                    j:j+delta.shape[2],
