@@ -35,6 +35,16 @@ class DenseLayer:
         if cacl_next_delta:
             next_delta = np.dot(delta, self.weights)
             next_delta *= self.act_derivative(prev_raw_output)
+        else:
+            next_delta = None
+        return grad_weights.T, grad_biases, next_delta
+
+    def softmax_backward_pass(self, delta, prev_output, y_true, y_pred):
+        delta = self.act_derivative(y_true, y_pred)
+        grad_weights = np.dot(prev_output.T, delta)  # Gradient w.r.t. weights
+        grad_biases = np.sum(delta, axis=0, keepdims=True)  # Gradient w.r.t. biases
+        next_delta = np.dot(delta, self.weights)  # Propagate delta back to previous layer
+
         return grad_weights, grad_biases, next_delta
 
 
@@ -115,7 +125,7 @@ class CnnLayer:
         z = self.convolve(inputs)
         return self.activation(z), z
 
-    def backward_pass(self, prev_output, delta, calc_next_delta=True):
+    def backward_pass(self, prev_output, delta, calc_next_delta=True, prev_raw_output=None):
         batch_size, _, _, channels = prev_output.shape
         prev_output_padded = np.array([self.pad(p_o) for p_o in prev_output])
         grad_weights = np.zeros_like(self.weights)
@@ -126,7 +136,8 @@ class CnnLayer:
             for c in range(channels):
                 for i in range(self.kernel_size[0]):
                     for j in range(self.kernel_size[1]):
-                        grad_weights[f, i, j, c] = np.sum(
+                        # ns
+                        grad_weights[f, i, j, c] = -np.sum(
                             delta[:, :, :, f] * prev_output_padded[:,
                                                                    i:i+delta.shape[1],
                                                                    j:j+delta.shape[2],
