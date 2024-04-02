@@ -1,19 +1,29 @@
-from typing import Callable, Union
+"""A module containing the NeuralNetwork class."""
+from typing import Union
 import cupy as np
 from cupy import ndarray, float_
 from tqdm import tqdm
 from utils import convert_to_array
 from lossFuncs import loss_derivative_mapping
-from layers import DenseLayer, CnnLayer, FlattenLayer
 from Optmizers import Adam
 
 
 class NeuralNetwork:
+    """A class to represent a neural network model."""
+
     def __init__(self,
                  input_shape: Union[int, tuple[int, ...]],
                  lr=0.01,
                  loss=None
                  ) -> None:
+        """
+        Initializes a NeuralNetwork object.
+
+        Args:
+            input_shape (Union[int, tuple[int, ...]]): The shape of the input data.
+            lr (float, optional): The learning rate for the optimizer. Defaults to 0.01.
+            loss (callable, optional): The loss function to be used. Defaults to None.
+        """
         self.layers = []
         self.input_shape = input_shape
         self.lr = lr
@@ -21,7 +31,13 @@ class NeuralNetwork:
         self.optimizer = Adam(lr=lr)
         self.weighted_layers = []
 
-    def get_weights(self) -> list[float_]:
+    def get_weights(self) -> list[ndarray]:
+        """
+        Returns the weights of all the layers in the neural network.
+
+        Returns:
+            list[ndarray]: The weights of all the layers.
+        """
         weights = []
         for layer in self.layers:
             try:
@@ -33,6 +49,12 @@ class NeuralNetwork:
         return weights
 
     def load_weights(self, weights: list[float_]) -> None:
+        """
+        Loads the weights into the neural network.
+
+        Args:
+            weights (list[float_]): The weights to be loaded.
+        """
         for i, weight in enumerate(weights):
             weight = weight.T
             if i % 2 == 0:
@@ -51,6 +73,13 @@ class NeuralNetwork:
                 self.weighted_layers[i // 2].biases = weight
 
     def add_layer(self, layer, **kwargs) -> None:
+        """
+        Adds a layer to the neural network.
+
+        Args:
+            layer: The layer to be added.
+            **kwargs: Additional keyword arguments for the layer.
+        """
         if not self.layers:
             layer = layer(self.input_shape, **kwargs)
         else:
@@ -60,6 +89,15 @@ class NeuralNetwork:
             self.weighted_layers.append(layer)
 
     def __call__(self, inputs: ndarray) -> ndarray:
+        """
+        Performs a forward pass through the neural network.
+
+        Args:
+            inputs (ndarray): The input data.
+
+        Returns:
+            ndarray: The output of the neural network.
+        """
         inputs = convert_to_array(inputs)
         outputs = []
         for _input in inputs:
@@ -69,7 +107,18 @@ class NeuralNetwork:
         outputs = np.array(outputs)
         return outputs
 
-    def forward_pass(self, X: ndarray) -> ndarray:
+    def forward_pass(self, X: ndarray) -> tuple[dict[int, ndarray], dict[int, ndarray]]:
+        """
+        Performs a forward pass through the neural network.
+
+        Args:
+            X (ndarray): The input data.
+
+        Returns:
+            tuple[dict[int, ndarray], dict[int, ndarray]]: A tuple containing two dictionaries.
+            The first dictionary `a` contains the activation values for each layer.
+            The second dictionary `z` contains the raw output values for each layer.
+        """
         X = convert_to_array(X)
         a = {}
         z = {}
@@ -92,7 +141,21 @@ class NeuralNetwork:
                 z[i][l] = raw
         return a, z
 
-    def backwards_pass(self, X: np.ndarray, y: np.ndarray):
+    def backwards_pass(self, X: ndarray, y: ndarray) -> tuple[dict[str, ndarray], ndarray]:
+        """
+        Perform the backward pass of the neural network.
+
+        Args:
+            X (ndarray): The input data.
+            y (ndarray): The target labels.
+
+        Returns:
+            tuple[Dict[str, ndarray], ndarray]: A tuple containing the gradients
+            of the weights and biases, and the activations of the last layer.
+
+        Raises:
+            AssertionError: If the loss function is not defined.
+        """
         X = np.array(X)
         y = np.array(y).reshape(-1, 1)
         assert self.loss is not None, "Loss function not defined"
@@ -103,7 +166,6 @@ class NeuralNetwork:
 
         # Initialize delta from the loss derivative w.r.t. the last layer's activation
         loss_prime = loss_derivative_mapping[self.loss]
-        delta = loss_prime(y, a[len(self.layers) - 1])
         delta = loss_prime(y, a[len(self.layers) - 1])
 
         # Iterate backwards through the layers
@@ -140,6 +202,17 @@ class NeuralNetwork:
               epochs: int,
               batch_size: int = 34,
               shuffle: bool = True) -> None:
+        """
+        Trains the neural network model using the given input data.
+
+        Args:
+            X (ndarray): The input data.
+            y (ndarray): The target labels.
+            epochs (int): The number of training epochs.
+            batch_size (int, optional): The batch size for training. Defaults to 34.
+            shuffle (bool, optional): Whether to shuffle the data before each epoch. 
+            Defaults to True.
+        """
         assert self.loss is not None, "Loss function not defined"
         X = convert_to_array(X)
         y = convert_to_array(y)
@@ -167,18 +240,3 @@ class NeuralNetwork:
                     layer.biases = updated_weights[f'b{i}']
                 batch_loss.append(loss)
             progress.set_postfix(loss=round(float(np.mean(loss)), 6))
-
-
-if __name__ == "__main__":
-    from activationFuncs import relu, softmax
-    from lossFuncs import sparse_categorical_crossentropy as scc
-    nn = NeuralNetwork((4, 4, 1), lr=0.01, loss=scc)
-    nn.add_layer(CnnLayer, kernel_size=(2, 2), filters=2, stride=1,
-                 padding=0, activation=relu, input_channels=1)
-    nn.add_layer(FlattenLayer)
-    nn.add_layer(DenseLayer, output_size=5, activation=relu)
-    nn.add_layer(DenseLayer, output_size=3, activation=softmax)
-    X = np.random.rand(15, 4, 4, 1)
-    y = np.random.randint(0, 3, 15).reshape(-1, 1)
-    nn.train(X, y, 150, shuffle=True)
-    print(nn(X))
